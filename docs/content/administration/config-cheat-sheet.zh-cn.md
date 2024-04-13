@@ -1196,7 +1196,7 @@ ALLOW_DATA_URI_IMAGES = true
 
 ## LFS (`lfs`)
 
-用于 lfs 数据的存储配置。当将 `STORAGE_TYPE` 设置为 `xxx` 时，它将从默认的 `[storage]` 或 `[storage.xxx]` 派生。
+用于 lfs 数据的存储配置。默认情况下，它将从 `[storage]` 派生；将 `STORAGE_TYPE` 设置为 `xxx` 时，则从 `[storage.xxx]` 派生。
 当派生时，`PATH` 的默认值是 `data/lfs`，`MINIO_BASE_PATH` 的默认值是 `lfs/`。
 
 - `STORAGE_TYPE`：**local**：lfs 的存储类型，`local` 表示本地磁盘，`minio` 表示 S3 兼容对象存储服务，或者使用 `[storage.xxx]` 中定义的其他名称。
