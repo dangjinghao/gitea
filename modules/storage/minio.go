@@ -6,6 +6,7 @@ package storage
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -74,6 +75,19 @@ func convertMinioErr(err error) error {
 var getBucketVersioning = func(ctx context.Context, minioClient *minio.Client, bucket string) error {
 	_, err := minioClient.GetBucketVersioning(ctx, bucket)
 	return err
+}
+
+func ConvertToMinioStorage(o ObjectStorage) (*MinioStorage, error) {
+	LFSMinio, ok := o.(*MinioStorage)
+	if !ok {
+		err := errors.New("convert object storage to minio storage failed")
+		return LFSMinio, err
+	}
+	return LFSMinio, nil
+}
+
+func IsinlineMime(mime string) bool {
+	return strings.HasPrefix(mime, "image/") || mime == "application/pdf"
 }
 
 // NewMinioStorage returns a minio storage
@@ -162,8 +176,8 @@ func (m *MinioStorage) Open(path string) (Object, error) {
 	return &minioObject{object}, nil
 }
 
-// Save saves a file to minio
-func (m *MinioStorage) Save(path string, r io.Reader, size int64) (int64, error) {
+// SaveMExtContentType saves a file to minio with content type parameter, only for minio
+func (m *MinioStorage) SaveMExtContentType(path string, r io.Reader, size int64, contentType string) (int64, error) {
 	uploadInfo, err := m.client.PutObject(
 		m.ctx,
 		m.bucket,
@@ -171,7 +185,7 @@ func (m *MinioStorage) Save(path string, r io.Reader, size int64) (int64, error)
 		r,
 		size,
 		minio.PutObjectOptions{
-			ContentType: "application/octet-stream",
+			ContentType: contentType,
 			// some storages like:
 			// * https://developers.cloudflare.com/r2/api/s3/api/
 			// * https://www.backblaze.com/b2/docs/s3_compatible_api.html
@@ -183,6 +197,11 @@ func (m *MinioStorage) Save(path string, r io.Reader, size int64) (int64, error)
 		return 0, convertMinioErr(err)
 	}
 	return uploadInfo.Size, nil
+}
+
+// Save saves a file to minio
+func (m *MinioStorage) Save(path string, r io.Reader, size int64) (int64, error) {
+	return m.SaveMExtContentType(path, r, size, "application/octet-stream")
 }
 
 type minioFileInfo struct {
@@ -236,9 +255,22 @@ func (m *MinioStorage) Delete(path string) error {
 
 // URL gets the redirect URL to a file. The presigned link is valid for 5 minutes.
 func (m *MinioStorage) URL(path, name string) (*url.URL, error) {
+	return m.URLMExt(path, name, false, "application/octet-stream")
+}
+
+// URLMExt gets URL with inline or attachment selection,only for minio
+func (m *MinioStorage) URLMExt(path, name string, isInline bool, ContentType string) (*url.URL, error) {
 	reqParams := make(url.Values)
-	// TODO it may be good to embed images with 'inline' like ServeData does, but we don't want to have to read the file, do we?
-	reqParams.Set("response-content-disposition", "attachment; filename=\""+quoteEscaper.Replace(name)+"\"")
+	var contentDispositionValue string
+	if isInline {
+		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition#syntax
+		contentDispositionValue = "inline"
+	} else {
+		contentDispositionValue = "attachment; filename=\"" + quoteEscaper.Replace(name) + "\""
+
+	}
+	reqParams.Set("response-content-disposition", contentDispositionValue)
+	reqParams.Set("response-content-type", ContentType)
 	u, err := m.client.PresignedGetObject(m.ctx, m.bucket, m.buildMinioPath(path), 5*time.Minute, reqParams)
 	return u, convertMinioErr(err)
 }

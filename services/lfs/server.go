@@ -271,7 +271,6 @@ func BatchHandler(ctx *context.Context) {
 // UploadHandler receives data from the client and puts it into the content store
 func UploadHandler(ctx *context.Context) {
 	rc := getRequestContext(ctx)
-
 	p := lfs_module.Pointer{Oid: ctx.Params("oid")}
 	var err error
 	if p.Size, err = strconv.ParseInt(ctx.Params("size"), 10, 64); err != nil {
@@ -298,6 +297,8 @@ func UploadHandler(ctx *context.Context) {
 	}
 
 	uploadOrVerify := func() error {
+		isNotPutButNewLFS := true
+		mimeType := "application/oct-stream"
 		if exists {
 			accessible, err := git_model.LFSObjectAccessible(ctx, ctx.Doer, p.Oid)
 			if err != nil {
@@ -321,11 +322,18 @@ func UploadHandler(ctx *context.Context) {
 					return lfs_module.ErrHashMismatch
 				}
 			}
-		} else if err := contentStore.Put(p, ctx.Req.Body); err != nil {
-			log.Error("Error putting LFS MetaObject [%s] into content store. Error: %v", p.Oid, err)
-			return err
+		} else {
+			mimeType, err = contentStore.PutExt(p, ctx.Req.Body)
+			if err != nil {
+				log.Error("Error putting LFS MetaObject [%s] into content store. Error: %v", p.Oid, err)
+				return err
+			}
+			isNotPutButNewLFS = false
 		}
-		_, err := git_model.NewLFSMetaObject(ctx, repository.ID, p)
+		if isNotPutButNewLFS {
+			log.Warn("Unespected isNotPutButNewLFS state!")
+		}
+		_, err := git_model.NewLFSMetaObjectExt(ctx, repository.ID, p, mimeType)
 		return err
 	}
 

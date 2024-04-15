@@ -55,7 +55,16 @@ func ServeBlobOrLFS(ctx *context.Context, blob *git.Blob, lastModified *time.Tim
 
 		if setting.LFS.Storage.MinioConfig.ServeDirect {
 			// If we have a signed url (S3, object storage), redirect to this directly.
-			u, err := storage.LFS.URL(pointer.RelativePath(), blob.Name())
+
+			LFSMinio, err := storage.ConvertToMinioStorage(storage.LFS)
+			if err != nil {
+				ctx.ServerError("ServeBlobOrLFS", err)
+				return err
+			}
+			isInline := storage.IsinlineMime(meta.ContentType)
+			// until here
+
+			u, err := LFSMinio.URLMExt(pointer.RelativePath(), blob.Name(), isInline, meta.ContentType)
 			if u != nil && err == nil {
 				ctx.Redirect(u.String())
 				return nil

@@ -115,6 +115,7 @@ type LFSMetaObject struct {
 	Existing     bool               `xorm:"-"`
 	CreatedUnix  timeutil.TimeStamp `xorm:"created"`
 	UpdatedUnix  timeutil.TimeStamp `xorm:"INDEX updated"`
+	ContentType  string             `xorm:"VARCHAR(255) NOT NULL DEFAULT 'application/octet-stream'"`
 }
 
 func init() {
@@ -136,6 +137,12 @@ var ErrLFSObjectNotExist = db.ErrNotExist{Resource: "LFS Meta object"}
 // NewLFSMetaObject stores a given populated LFSMetaObject structure in the database
 // if it is not already present.
 func NewLFSMetaObject(ctx context.Context, repoID int64, p lfs.Pointer) (*LFSMetaObject, error) {
+	return NewLFSMetaObjectExt(ctx, repoID, p, "application/octet-stream")
+}
+
+// NewLFSMetaObject stores a given populated LFSMetaObject structure in the database
+// if it is not already present. Extension with Specify content type
+func NewLFSMetaObjectExt(ctx context.Context, repoID int64, p lfs.Pointer, contentType string) (*LFSMetaObject, error) {
 	var err error
 
 	ctx, committer, err := db.TxContext(ctx)
@@ -152,7 +159,7 @@ func NewLFSMetaObject(ctx context.Context, repoID int64, p lfs.Pointer) (*LFSMet
 		return m, committer.Commit()
 	}
 
-	m = &LFSMetaObject{Pointer: p, RepositoryID: repoID}
+	m = &LFSMetaObject{Pointer: p, RepositoryID: repoID, ContentType: contentType}
 	if err = db.Insert(ctx, m); err != nil {
 		return nil, err
 	}

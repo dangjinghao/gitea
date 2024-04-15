@@ -4,6 +4,7 @@
 package lfs
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -13,6 +14,7 @@ import (
 
 	"code.gitea.io/gitea/modules/log"
 	"code.gitea.io/gitea/modules/storage"
+	"code.gitea.io/gitea/modules/typesniffer"
 )
 
 var (
@@ -46,17 +48,42 @@ func (s *ContentStore) Get(pointer Pointer) (storage.Object, error) {
 
 // Put takes a Meta object and an io.Reader and writes the content to the store.
 func (s *ContentStore) Put(pointer Pointer, r io.Reader) error {
+	_, err := s.PutExt(pointer, r)
+	return err
+}
+
+// PutExt takes a Meta object and an io.Reader and writes the content to the store.
+// Extended for returning file content type
+func (s *ContentStore) PutExt(pointer Pointer, r io.Reader) (contentType string, err error) {
 	p := pointer.RelativePath()
 
 	// Wrap the provided reader with an inline hashing and size checker
 	wrappedRd := newHashingReader(pointer.Size, pointer.Oid, r)
+	fileHeaderBuffer := bytes.NewBuffer(nil)
 
+	_, err = io.Copy(fileHeaderBuffer, io.LimitReader(wrappedRd, 512))
+	if err != nil {
+		log.Error("Errror copying data from wrappedRd: %v", err)
+		return
+	}
+
+	ts := typesniffer.DetectContentType(fileHeaderBuffer.Bytes())
+	contentType = ts.GetMimeType()
+	fullFile := io.MultiReader(bytes.NewReader(fileHeaderBuffer.Bytes()), wrappedRd)
+	log.Info(contentType)
 	// now pass the wrapped reader to Save - if there is a size mismatch or hash mismatch then
-	// the errors returned by the newHashingReader should percolate up to here
-	written, err := s.Save(p, wrappedRd, pointer.Size)
+
+	mS, err := storage.ConvertToMinioStorage(s.ObjectStorage)
+	var written int64
+	if err == nil {
+		written, err = mS.SaveMExtContentType(p, fullFile, pointer.Size, contentType)
+	} else {
+		written, err = s.Save(p, fullFile, pointer.Size)
+
+	}
 	if err != nil {
 		log.Error("Whilst putting LFS OID[%s]: Failed to copy to tmpPath: %s Error: %v", pointer.Oid, p, err)
-		return err
+		return
 	}
 
 	// check again whether there is any error during the Save operation
@@ -74,7 +101,7 @@ func (s *ContentStore) Put(pointer Pointer, r io.Reader) error {
 		}
 	}
 
-	return err
+	return
 }
 
 // Exists returns true if the object exists in the content store.
